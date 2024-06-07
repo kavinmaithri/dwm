@@ -1,0 +1,645 @@
+1st question:
+
+
+import pandas as pd
+import numpy as np
+
+# Define a Node class to represent each node in the decision tree
+class Node:
+    def __init__(self, feature=None, threshold=None, left=None, right=None, *, value=None):
+        self.feature = feature           # Index of the feature to split on
+        self.threshold = threshold       # Threshold value for the feature
+        self.left = left                 # Left child node
+        self.right = right               # Right child node
+        self.value = value               # Value if the node is a leaf
+
+    def is_leaf_node(self):
+        return self.value is not None
+
+# Define the DecisionTreeClassifier class
+class DecisionTreeClassifier:
+    def __init__(self, max_depth=100):
+        self.max_depth = max_depth
+        self.root = None
+
+    def fit(self, X, y):
+        self.root = self._grow_tree(X, y)
+
+    def predict(self, X):
+        return np.array([self._traverse_tree(x, self.root) for x in X])
+
+    def _grow_tree(self, X, y, depth=0):
+        n_samples, n_features = X.shape
+        n_labels = len(np.unique(y))
+
+        # Stopping criteria
+        if depth >= self.max_depth or n_labels == 1 or n_samples < 2:
+            leaf_value = self._most_common_label(y)
+            return Node(value=leaf_value)
+
+        rnd_feats = np.random.choice(n_features, n_features, replace=False)
+
+        # Find the best split
+        best_feat, best_thresh = self._best_criteria(X, y, rnd_feats)
+        
+        # Grow the children recursively
+        left_idx, right_idx = self._split(X[:, best_feat], best_thresh)
+        left = self._grow_tree(X[left_idx, :], y[left_idx], depth + 1)
+        right = self._grow_tree(X[right_idx, :], y[right_idx], depth + 1)
+        return Node(best_feat, best_thresh, left, right)
+
+    def _best_criteria(self, X, y, features):
+        best_gain = -1
+        split_idx, split_thresh = None, None
+        for feat in features:
+            X_column = X[:, feat]
+            thresholds = np.unique(X_column)
+            for threshold in thresholds:
+                gain = self._information_gain(y, X_column, threshold)
+                if gain > best_gain:
+                    best_gain = gain
+                    split_idx = feat
+                    split_thresh = threshold
+        return split_idx, split_thresh
+
+    def _information_gain(self, y, X_column, split_thresh):
+        # Parent Gini impurity
+        parent_gini = self._gini(y)
+
+        # Generate split
+        left_idx, right_idx = self._split(X_column, split_thresh)
+
+        if len(left_idx) == 0 or len(right_idx) == 0:
+            return 0
+
+        # Weighted avg Gini of children
+        n = len(y)
+        n_l, n_r = len(left_idx), len(right_idx)
+        e_l, e_r = self._gini(y[left_idx]), self._gini(y[right_idx])
+        child_gini = (n_l / n) * e_l + (n_r / n) * e_r
+
+        # Information gain is parent impurity minus child impurity
+        ig = parent_gini - child_gini
+        return ig
+
+    def _gini(self, y):
+        m = len(y)
+        return 1.0 - sum((np.sum(y == c) / m) ** 2 for c in np.unique(y))
+
+    def _split(self, X_column, split_thresh):
+        left_idx = np.argwhere(X_column <= split_thresh).flatten()
+        right_idx = np.argwhere(X_column > split_thresh).flatten()
+        return left_idx, right_idx
+
+    def _traverse_tree(self, x, node):
+        if node.is_leaf_node():
+            return node.value
+        if x[node.feature] <= node.threshold:
+            return self._traverse_tree(x, node.left)
+        return self._traverse_tree(x, node.right)
+
+    def _most_common_label(self, y):
+        return np.bincount(y).argmax()
+
+# Step 1: Create the CSV file
+data = {
+    'Day': ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14'],
+    'Outlook': ['Sunny', 'Sunny', 'Overcast', 'Rain', 'Rain', 'Rain', 'Overcast', 'Sunny', 'Sunny', 'Rain', 'Sunny', 'Overcast', 'Overcast', 'Rain'],
+    'Temperature': ['Hot', 'Hot', 'Hot', 'Mild', 'Cool', 'Cool', 'Cool', 'Mild', 'Cool', 'Mild', 'Mild', 'Mild', 'Hot', 'Mild'],
+    'Humidity': ['High', 'High', 'High', 'High', 'Normal', 'Normal', 'Normal', 'High', 'Normal', 'Normal', 'Normal', 'High', 'Normal', 'High'],
+    'Wind': ['Weak', 'Strong', 'Weak', 'Weak', 'Weak', 'Strong', 'Strong', 'Weak', 'Weak', 'Weak', 'Strong', 'Strong', 'Weak', 'Strong'],
+    'PlayTennis': ['No', 'No', 'Yes', 'Yes', 'Yes', 'No', 'Yes', 'No', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'No']
+}
+
+df = pd.DataFrame(data)
+csv_file_path = 'tennis.csv'
+df.to_csv(csv_file_path, index=False)
+
+# Step 2: Load the CSV file and apply the Decision Tree Algorithm
+# Load dataset
+df = pd.read_csv(csv_file_path)
+
+# Convert categorical variables to numeric
+df['Outlook'] = df['Outlook'].map({'Sunny': 0, 'Overcast': 1, 'Rain': 2})
+df['Temperature'] = df['Temperature'].map({'Hot': 0, 'Mild': 1, 'Cool': 2})
+df['Humidity'] = df['Humidity'].map({'High': 0, 'Normal': 1})
+df['Wind'] = df['Wind'].map({'Weak': 0, 'Strong': 1})
+df['PlayTennis'] = df['PlayTennis'].map({'No': 0, 'Yes': 1})
+
+# Split the data into features and target
+X = df.drop(['Day', 'PlayTennis'], axis=1).values
+y = df['PlayTennis'].values
+
+# Initialize and train the Decision Tree Classifier
+clf = DecisionTreeClassifier(max_depth=3)
+clf.fit(X, y)
+
+# Make predictions
+y_pred = clf.predict(X)
+
+# Evaluate the model
+accuracy = np.sum(y == y_pred) / len(y)
+print(f"Accuracy: {accuracy}")
+
+2nd question:
+
+2.
+import csv
+import numpy as np
+
+# Create CSV file
+data = [
+    ["Individual", "Variable 1", "Variable 2"],
+    [1, 1.0, 1.0],
+    [2, 1.5, 2.0],
+    [3, 3.0, 4.0],
+    [4, 5.0, 7.0],
+    [5, 3.5, 5.0],
+    [6, 4.5, 5.0],
+    [7, 3.5, 4.5]
+]
+
+with open('data.csv', 'w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerows(data)
+
+# K-means Clustering
+data = np.array([
+    [1.0, 1.0],
+    [1.5, 2.0],
+    [3.0, 4.0],
+    [5.0, 7.0],
+    [3.5, 5.0],
+    [4.5, 5.0],
+    [3.5, 4.5]
+])
+
+k = 2
+centroids = data[np.random.choice(data.shape[0], k, replace=False)]
+
+for _ in range(100):
+    clusters = [[] for _ in range(k)]
+    for point in data:
+        distances = [np.sqrt(np.sum((point - centroid) ** 2)) for centroid in centroids]
+        cluster_index = np.argmin(distances)
+        clusters[cluster_index].append(point)
+
+    new_centroids = []
+    for cluster in clusters:
+        new_centroids.append(np.mean(cluster, axis=0))
+    
+    new_centroids = np.array(new_centroids)
+
+    if np.all(centroids == new_centroids):
+        break
+    
+    centroids = new_centroids
+
+# Print the results
+for i, cluster in enumerate(clusters):
+    print(f"Cluster {i+1}:")
+    for point in cluster:
+        print(point)
+
+
+
+3rd question:
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Given data points
+x = [0, 1, 2, 3, 4]
+y = [2, 3, 5, 4, 6]
+
+# Step 1: Calculate the means of x and y
+x_mean = sum(x) / len(x)
+y_mean = sum(y) / len(y)
+
+# Step 2: Calculate the coefficients a and b
+# Calculate the numerator and denominator for a
+numerator = sum((x[i] - x_mean) * (y[i] - y_mean) for i in range(len(x)))
+denominator = sum((x[i] - x_mean) ** 2 for i in range(len(x)))
+a = numerator / denominator
+b = y_mean - a * x_mean
+
+print(f"The linear regression line is y = {a:.2f}x + {b:.2f}")
+
+# Step 3: Estimate the value of y when x = 10
+x_new = 10
+y_new = a * x_new + b
+print(f"The estimated value of y when x = {x_new} is {y_new:.2f}")
+
+# Step 4: Calculate the Mean Squared Error (MSE)
+y_pred = [a * xi + b for xi in x]
+mse = sum((y[i] - y_pred[i]) ** 2 for i in range(len(y))) / len(y)
+print(f"The Mean Squared Error of the model is {mse:.2f}")
+
+# Plot the data points and the regression line
+plt.scatter(x, y, color='blue', label='Data points')
+plt.plot(x, y_pred, color='red', label='Regression line')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.legend()
+plt.show()
+
+
+4th question:
+
+# 4th q
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Given points
+points = np.array([
+    [2, 10],
+    [2, 5],
+    [8, 4],
+    [5, 8],
+    [7, 5],
+    [6, 4],
+    [1, 2],
+    [4, 9]
+])
+
+# Initial cluster centers
+initial_centers = np.array([
+    [2, 10],
+    [5, 8],
+    [1, 2]
+])
+
+# Function to compute the Euclidean distance
+def euclidean_distance(a, b):
+    return np.sqrt(np.sum((a - b) ** 2))
+
+# Function to assign points to the nearest cluster center
+def assign_clusters(points, centers):
+    clusters = {}
+    for i in range(len(centers)):
+        clusters[i] = []
+    for point in points:
+        distances = [euclidean_distance(point, center) for center in centers]
+        cluster = distances.index(min(distances))
+        clusters[cluster].append(point)
+    return clusters
+
+# Function to recalculate the cluster centers
+def recalculate_centers(clusters):
+    new_centers = []
+    for cluster in clusters.values():
+        new_center = np.mean(cluster, axis=0)
+        new_centers.append(new_center)
+    return new_centers
+
+# K-means clustering algorithm
+def kmeans(points, initial_centers, max_iterations=100):
+    centers = initial_centers
+    for _ in range(max_iterations):
+        clusters = assign_clusters(points, centers)
+        new_centers = recalculate_centers(clusters)
+        if np.allclose(centers, new_centers):
+            break
+        centers = new_centers
+    return centers, clusters
+
+# Run the K-means algorithm
+final_centers, clusters = kmeans(points, initial_centers)
+
+print("Final cluster centers:")
+for i, center in enumerate(final_centers):
+    print(f"Cluster {i+1} center: {center}")
+
+print("\nCluster assignments:")
+for i, cluster in clusters.items():
+    print(f"Cluster {i+1}: {cluster}")
+
+# Convert final_centers to a numpy array
+final_centers = np.array(final_centers)
+
+# Plot the results
+colors = ['r', 'g', 'b']
+for i, cluster in clusters.items():
+    cluster_points = np.array(cluster)
+    plt.scatter(cluster_points[:, 0], cluster_points[:, 1], color=colors[i], label=f'Cluster {i+1}')
+plt.scatter(final_centers[:, 0], final_centers[:, 1], color='k', marker='x', s=100, label='Centers')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.legend()
+plt.title('K-means Clustering')
+plt.show()
+
+or
+4th question small:
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Points and initial centers
+points = np.array([[2, 10], [2, 5], [8, 4], [5, 8], [7, 5], [6, 4], [1, 2], [4, 9]])
+initial_centers = np.array([[2, 10], [5, 8], [1, 2]])
+
+def kmeans(X, k, max_iters=100, initial_centers=None):
+    n, m = X.shape
+    centroids = initial_centers if initial_centers is not None else X[np.random.choice(n, k, replace=False)]
+    for _ in range(max_iters):
+        clusters = [[] for _ in range(k)]
+        for x in X:
+            distances = [np.linalg.norm(x - c) for c in centroids]
+            cluster_idx = np.argmin(distances)
+            clusters[cluster_idx].append(x)
+        new_centroids = [np.mean(cluster, axis=0) if len(cluster) > 0 else centroids[i] for i, cluster in enumerate(clusters)]
+        new_centroids = np.array(new_centroids)
+        if np.allclose(centroids, new_centroids):
+            break
+        centroids = new_centroids
+    return clusters, np.array(centroids)
+
+# Apply K-means
+clusters, centroids = kmeans(points, 3, initial_centers=initial_centers)
+
+# Visualize clusters
+colors = ['r', 'g', 'b']
+for cluster, color in zip(clusters, colors):
+    cluster = np.array(cluster)
+    plt.scatter(cluster[:, 0], cluster[:, 1], c=color)
+plt.scatter(centroids[:, 0], centroids[:, 1], s=200, c='black', marker='x')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('K-means Clustering')
+plt.show()
+
+5th question:
+
+# 5th Q
+import pandas as pd
+import numpy as np
+
+# Create the dataset
+data = {
+    'ID': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    'Age': [21, 35, 26, 45, 67, np.nan, 32, 31, np.nan, 42, np.nan, 32, 35, 35],
+    'Income': ['1L', '1,00,000', '45000', '', '10,000', '10000', '5$', '5 Dollars', '10,000', '15000', '25,000', '35000', '150000', '35000'],
+    'Gender': ['Male', 'Male', 'Male', '', 'Female', 'Female', 'Female', 'Male', 'Female', 'Female', 'Female', 'Male', 'Female', 'Male'],
+    'DoB': ['31.05.1992', '10-05-2002', 'Aug 5, 2000', '', '31.03.1986', '10/5/1987', '31.05.1992', '10-05-2002', 'Aug 5, 2000', 'Sep 12’2000', '31.03.1986', '10/5/1987', 'Sep 12’2000', '31.03.1986'],
+    'Buys': ['No', 'No', 'Yes', 'Yes', 'Yes', 'No', 'Yes', 'No', 'Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'No']
+}
+
+df = pd.DataFrame(data)
+print("Original Dataset:")
+print(df)
+
+# Handle missing data and formatting issues
+# Replace '1L' with '100000' and '5$'/'5 Dollars' with '5000'
+df['Income'] = df['Income'].replace(['1L', '5$', '5 Dollars'], ['100000', '5000', '5000'])
+
+# Convert 'Income' to numeric, forcing errors to NaN and then filling missing values with the median
+df['Income'] = pd.to_numeric(df['Income'].str.replace(',', ''), errors='coerce')
+df['Income'].fillna(df['Income'].median(), inplace=True)
+
+# Fill missing 'Age' values with the median
+df['Age'].fillna(df['Age'].median(), inplace=True)
+
+# Fill missing 'Gender' values with the mode
+df['Gender'].fillna(df['Gender'].mode()[0], inplace=True)
+
+# Convert 'DoB' to datetime, forcing errors to NaT and then filling missing values with the mode
+df['DoB'] = pd.to_datetime(df['DoB'], errors='coerce')
+df['DoB'].fillna(df['DoB'].mode()[0], inplace=True)
+
+print("\nCleaned Dataset:")
+print(df)
+
+# Apply five statistical measures
+mean_age = df['Age'].mean()
+median_income = df['Income'].median()
+std_income = df['Income'].std()
+count_gender = df['Gender'].value_counts()
+mode_buys = df['Buys'].mode()[0]
+
+
+6th question:
+
+#6TH Q
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Given points
+points = np.array([
+    [2, 2],   # A
+    [3, 2],   # B
+    [1, 1],   # C
+    [3, 1],   # D
+    [1.5, 0.5] # E
+])
+
+# Initial cluster centers
+initial_centers = np.array([
+    [2, 2],   # Center for cluster 1
+    [1, 1]    # Center for cluster 2
+])
+
+# Function to compute the Euclidean distance
+def euclidean_distance(a, b):
+    return np.sqrt(np.sum((a - b) ** 2))
+
+# Function to assign points to the nearest cluster center
+def assign_clusters(points, centers):
+    clusters = {}
+    for i in range(len(centers)):
+        clusters[i] = []
+    for point in points:
+        distances = [euclidean_distance(point, center) for center in centers]
+        cluster = distances.index(min(distances))
+        clusters[cluster].append(point)
+    return clusters
+
+# Function to recalculate the cluster centers
+def recalculate_centers(clusters):
+    new_centers = []
+    for cluster in clusters.values():
+        new_center = np.mean(cluster, axis=0)
+        new_centers.append(new_center)
+    return new_centers
+
+# K-means clustering algorithm
+def kmeans(points, initial_centers, max_iterations=100):
+    centers = initial_centers
+    for _ in range(max_iterations):
+        clusters = assign_clusters(points, centers)
+        new_centers = recalculate_centers(clusters)
+        if np.allclose(centers, new_centers):
+            break
+        centers = new_centers
+    return centers, clusters
+
+# Run the K-means algorithm
+final_centers, clusters = kmeans(points, initial_centers)
+
+print("Final cluster centers:")
+for i, center in enumerate(final_centers):
+    print(f"Cluster {i+1} center: {center}")
+
+print("\nCluster assignments:")
+for i, cluster in clusters.items():
+    print(f"Cluster {i+1}: {cluster}")
+
+# Convert final_centers to a numpy array
+final_centers = np.array(final_centers)
+
+# Plot the results
+colors = ['r', 'b']
+labels = ['A', 'B', 'C', 'D', 'E']
+for i, cluster in clusters.items():
+    cluster_points = np.array(cluster)
+    plt.scatter(cluster_points[:, 0], cluster_points[:, 1], color=colors[i], label=f'Cluster {i+1}')
+    for j, point in enumerate(cluster_points):
+        plt.text(point[0], point[1], labels[j], fontsize=12)
+plt.scatter(final_centers[:, 0], final_centers[:, 1], color='k', marker='x', s=100, label='Centers')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.legend()
+plt.title('K-means Clustering')
+plt.show()
+
+or 6th question small:
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+# Points
+points = np.array([[2, 2], [1, 1]])
+
+def kmeans(X, k, max_iters=100, initial_centers=None):
+    n, m = X.shape
+    centroids = initial_centers if initial_centers is not None else X[np.random.choice(n, k, replace=False)]
+    for _ in range(max_iters):
+        clusters = [[] for _ in range(k)]
+        for x in X:
+            distances = [np.linalg.norm(x - c) for c in centroids]
+            cluster_idx = np.argmin(distances)
+            clusters[cluster_idx].append(x)
+        new_centroids = [np.mean(cluster, axis=0) for cluster in clusters]
+        if np.all(centroids == new_centroids):
+            break
+        centroids = new_centroids
+    return np.array(clusters), np.array(centroids)
+
+# Apply K-means
+clusters, centroids = kmeans(points, 2, initial_centers=points)
+
+# Visualize clusters
+colors = ['r', 'g']
+for cluster, color in zip(clusters, colors):
+    cluster = np.array(cluster)
+    plt.scatter(cluster[:, 0], cluster[:, 1], c=color)
+plt.scatter(centroids[:, 0], centroids[:, 1], s=200, c='black', marker='x')
+plt.xlabel('x')
+plt.ylabel('y')
+plt.title('K-means Clustering')
+plt.show()
+
+
+
+
+7th question:
+
+import pandas as pd
+import itertools
+
+# Data creation
+data = {'TransactionID': ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'],
+        'Items': [['HotDogs', 'Buns', 'Ketchup'],
+                  ['HotDogs', 'Buns'],
+                  ['HotDogs', 'Coke', 'Chips'],
+                  ['Chips', 'Coke'],
+                  ['Chips', 'Ketchup'],
+                  ['HotDogs', 'Coke', 'Chips']]}
+
+df = pd.DataFrame(data)
+
+# Creating the basket (one-hot encoded DataFrame)
+basket = pd.DataFrame(df['Items'].tolist(), index=df['TransactionID']).stack().reset_index(level=1, drop=True).reset_index()
+basket.columns = ['TransactionID', 'Items']
+basket = pd.crosstab(basket['TransactionID'], basket['Items'])
+
+# Encoding function
+def encode_units(x):
+    return 1 if x >= 1 else 0
+
+basket_sets = basket.apply(lambda x: x.apply(encode_units))
+
+# Function to generate frequent itemsets
+def apriori_manual(df, min_support=0.3334):
+    itemset_support = {}
+    num_transactions = len(df)
+    items = df.columns
+
+    def get_support(itemset):
+        mask = df[list(itemset)].all(axis=1)
+        return mask.sum() / num_transactions
+
+    # Generate frequent 1-itemsets
+    for item in items:
+        support = get_support([item])
+        if support >= min_support:
+            itemset_support[frozenset([item])] = support
+
+    current_itemsets = list(itemset_support.keys())
+    k = 2
+
+    while current_itemsets:
+        new_itemsets = list(itertools.combinations(set(itertools.chain.from_iterable(current_itemsets)), k))
+        new_itemset_support = {}
+
+        for itemset in new_itemsets:
+            support = get_support(itemset)
+            if support >= min_support:
+                new_itemset_support[frozenset(itemset)] = support
+
+        itemset_support.update(new_itemset_support)
+        current_itemsets = new_itemset_support.keys()
+        k += 1
+
+    frequent_itemsets = pd.DataFrame(
+        [(list(itemset), support) for itemset, support in itemset_support.items()],
+        columns=['itemsets', 'support']
+    )
+
+    return frequent_itemsets
+
+frequent_itemsets = apriori_manual(basket_sets)
+
+# Function to generate association rules
+def generate_association_rules(frequent_itemsets, min_confidence=0.6):
+    rules = []
+    itemsets = frequent_itemsets['itemsets'].tolist()
+    supports = dict(zip(map(frozenset, frequent_itemsets['itemsets']), frequent_itemsets['support']))
+
+    for itemset in itemsets:
+        if len(itemset) > 1:
+            for subset in itertools.chain(*[itertools.combinations(itemset, r) for r in range(1, len(itemset))]):
+                antecedent = frozenset(subset)
+                consequent = frozenset(itemset) - antecedent
+                if supports[frozenset(itemset)] / supports[antecedent] >= min_confidence:
+                    rules.append({
+                        'antecedent': list(antecedent),
+                        'consequent': list(consequent),
+                        'antecedent support': supports[antecedent],
+                        'consequent support': supports[consequent],
+                        'support': supports[frozenset(itemset)],
+                        'confidence': supports[frozenset(itemset)] / supports[antecedent],
+                        'lift': supports[frozenset(itemset)] / (supports[antecedent] * supports[consequent])
+                    })
+
+    return pd.DataFrame(rules)
+
+rules = generate_association_rules(frequent_itemsets)
+
+print("Frequent Itemsets:")
+print(frequent_itemsets)
+print("\nAssociation Rules:")
+print(rules.sort_values(by='confidence', ascending=False))
+
